@@ -1,0 +1,52 @@
+---
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Ensure ufw is installed
+  apt:
+    name: ufw
+    state: present
+
+- name: Allow SSH through ufw
+  ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Allow HTTP through ufw
+  ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+
+- name: Allow HTTPS through ufw
+  ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+
+- name: Allow all traffic within the cluster's private subnet
+  ufw:
+    rule: allow
+    from_ip: 10.10.1.0/24
+
+- name: Enable ufw
+  ufw:
+    state: enabled
+    policy: deny
+
+- name: Disable SSH password authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+  notify: restart sshd
+
+- name: Disable root SSH login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+  notify: restart sshd

@@ -1,0 +1,23 @@
+---
+- name: Check if k3s agent is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Read the node-token from local file
+  set_fact:
+    k3s_token: "{{ lookup('file', '/tmp/phoenix-node-token') }}"
+
+- name: Download and install k3s agent
+  shell: >
+    curl -sfL https://get.k3s.io |
+    K3S_URL=https://{{ hostvars['control-plane']['ansible_host'] }}:6443
+    K3S_TOKEN={{ k3s_token }}
+    sh -
+  when: not k3s_binary.stat.exists
+
+- name: Ensure k3s-agent service is running and enabled
+  systemd:
+    name: k3s-agent
+    state: started
+    enabled: yes

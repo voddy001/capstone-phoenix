@@ -1,0 +1,26 @@
+---
+- name: Check if k3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Download and install k3s server
+  shell: curl -sfL https://get.k3s.io | sh -
+  when: not k3s_binary.stat.exists
+
+- name: Ensure k3s service is running and enabled
+  systemd:
+    name: k3s
+    state: started
+    enabled: yes
+
+- name: Wait for node-token to be created
+  wait_for:
+    path: /var/lib/rancher/k3s/server/node-token
+    timeout: 60
+
+- name: Fetch the node-token to the control machine
+  fetch:
+    src: /var/lib/rancher/k3s/server/node-token
+    dest: /tmp/phoenix-node-token
+    flat: yes
