@@ -16,7 +16,6 @@ metadata:
   name: backend
   namespace: taskapp
 spec:
-  replicas: 3
   strategy:
     type: RollingUpdate
     rollingUpdate:
