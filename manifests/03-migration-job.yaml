@@ -8,10 +8,20 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: db-init
-          image: ghcr.io/voddy001/taskapp-backend:v0.1.0
+          image: ghcr.io/voddy001/taskapp-backend:v0.1.1
           command: ["python", "init_db.py"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
           envFrom:
             - configMapRef:
                 name: taskapp-config
