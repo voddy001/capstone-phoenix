@@ -28,6 +28,13 @@ etcd HA.
 
 ## Request flow
 
+User browser
+  → DNS (nip.io wildcard, resolves taskapp.<control-plane-ip>.nip.io → control-plane public IP)
+  → Traefik Ingress (k3s built-in), TLS terminated here (cert-manager + Let's Encrypt production issuer)
+  → path /       → frontend Service → frontend Deployment (nginx, static React build, 2 replicas)
+  → path /api/*  → backend Service  → backend Deployment (Flask + Gunicorn, 2-6 replicas via HPA)
+  → backend → postgres Service (headless) → postgres-0 (StatefulSet, PVC-backed)
+  
 Frontend and backend share one domain (same-origin), avoiding CORS
 entirely and sidestepping a Vite build-time constraint: `VITE_API_URL`
 is baked into the frontend's static JS at `docker build` time, not
