@@ -17,7 +17,9 @@ Find it: `curl -s https://checkip.amazonaws.com`
 Requires an existing EC2 key pair in the deploy region, referenced via
 the `key_name` variable (default currently set to `phoenix-cluster`).
 
-Outputs the 3 node public IPs:
+Outputs the 3 node IPs — note the control-plane's is now a **static
+Elastic IP**, so it stays constant across resizes/replacements; worker
+IPs are still dynamic:
 ```bash
 terraform output
 ```
@@ -46,7 +48,6 @@ ssh -i ~/phoenix-cluster.pem -L 6443:localhost:6443 -N -f ubuntu@<control-plane-
 Fetch kubeconfig (one-time, or after cluster rebuild):
 ```bash
 ssh -i ~/phoenix-cluster.pem ubuntu@<control-plane-public-ip> "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/phoenix-config
-sed -i 's/127.0.0.1/127.0.0.1/' ~/.kube/phoenix-config   # already localhost via tunnel, no edit needed if using tunnel approach
 export KUBECONFIG=~/.kube/phoenix-config
 ```
 
@@ -92,6 +93,13 @@ kubectl create secret generic taskapp-secrets \
   --from-literal=DATABASE_URL="postgresql://taskuser:${POSTGRES_PASSWORD}@postgres:5432/taskmanager"
 ```
 
+**Also outside GitOps**: taint the control-plane so app pods never
+schedule onto it (see "Note: control-plane sizing and static IP" below
+for why):
+```bash
+kubectl taint nodes <control-plane-node-name> node-role.kubernetes.io/control-plane=:NoSchedule
+```
+
 ## Day-to-day access (after the environment already exists)
 
 Your home IP changes periodically (residential ISP). If SSH/kubectl
@@ -130,10 +138,11 @@ kubectl annotate application taskapp -n argocd argocd.argoproj.io/refresh=hard -
 
 ## Scale
 
-Backend auto-scales via HPA (2-6 replicas on 50% CPU). To manually
-adjust the range, edit `manifests/09-hpa.yaml` and push. Frontend has a
-static replica count in `manifests/05-frontend.yaml` — edit and push to
-change.
+Backend auto-scales via HPA (3-6 replicas on 50% CPU — raised from a
+2-replica floor after a failover test showed 2 left no slack against
+the PDB's `minAvailable: 2`). To manually adjust the range, edit
+`manifests/09-hpa.yaml` and push. Frontend has a static replica count
+in `manifests/05-frontend.yaml` — edit and push to change.
 
 ## Roll back
 
@@ -165,6 +174,11 @@ To bring it back into rotation:
 kubectl uncordon <node-name>
 ```
 
+Live-tested: draining a worker with only 2 backend replicas correctly
+failed (PDB `minAvailable: 2` blocked it — proof the PDB works). After
+raising `minReplicas` to 3, the same drain succeeded cleanly with zero
+dropped requests throughout (verified via a continuous curl loop).
+
 ## Recover from a dead backend pod
 
 Automatic — the Deployment's controller replaces it immediately, and
@@ -189,9 +203,9 @@ Argo CD can apply an updated one.)
 
 ## Recover from control-plane resource exhaustion
 
-Encountered once during this project (see `docs/ARCHITECTURE.md` for
-context — installing the full kube-prometheus-stack overloaded a
-t3.small control-plane).
+Encountered twice during this project (see `docs/ARCHITECTURE.md` for
+the full incident history — the second time led to a permanent fix:
+resizing to `t3.medium` and tainting the node against app pods).
 
 Symptoms: SSH/kubectl work but hang or time out despite correct
 security group rules and IP.
@@ -203,7 +217,7 @@ ssh -i ~/phoenix-cluster.pem ubuntu@<node-ip> "free -h && uptime"
 Available memory near 0 and/or load average far above core count
 confirms resource exhaustion.
 
-Fix:
+Fix (short-term):
 ```bash
 ssh -i ~/phoenix-cluster.pem ubuntu@<node-ip> "sudo reboot"
 # wait ~60-90s
@@ -211,3 +225,28 @@ ssh -i ~/phoenix-cluster.pem ubuntu@<node-ip> "free -h && uptime"   # confirm re
 ```
 Safe: Postgres data persists via PVC; all other state is GitOps-managed
 and Argo CD reconciles automatically once the node is back.
+
+If this recurs, treat it as a capacity problem, not a one-off — see
+the "Note" below.
+
+## Note: control-plane sizing and static IP
+
+The control-plane runs `t3.medium` (not `t3.small`) after two resource
+exhaustion incidents during this build. It's also tainted
+(`node-role.kubernetes.io/control-plane=:NoSchedule`) so application
+pods never schedule there; only k3s, Argo CD, and cert-manager run on
+it. If application pods ever show up on the control-plane node via
+`kubectl get pods -A -o wide`, the taint may have been removed —
+reapply with:
+```bash
+kubectl taint nodes <control-plane-node-name> node-role.kubernetes.io/control-plane=:NoSchedule --overwrite
+```
+
+The control-plane also has a static **Elastic IP** attached (not the
+default dynamic public IP), specifically so future resizes or instance
+replacement never again change the domain, kubeconfig, or TLS cert —
+all three had to be manually updated once, the first time the
+control-plane was resized before the EIP existed. Note: an Elastic IP
+is only free while attached to a *running* instance — if the
+control-plane is ever stopped without releasing the EIP, AWS begins
+charging for the idle allocation (see `docs/COST.md`).
