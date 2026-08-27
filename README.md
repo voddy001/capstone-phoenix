@@ -2,7 +2,7 @@
 
 **Live app:** [taskapp.54.211.238.0.nip.io](https://taskapp.54.211.238.0.nip.io)
 
-![TaskApp running live](docs/assets/LIVE-URL.png)
+![TaskApp running live](docs/assets/live-app.png)
 
 > **Mission.** Take the **TaskApp** you containerized and shipped to one server with
 > Portainer, and run it on a **multi-node Kubernetes cluster you provision yourself** —
