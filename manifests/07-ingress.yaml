@@ -9,10 +9,10 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - taskapp.44.202.207.122.nip.io
+        - taskapp.54.211.238.0.nip.io
       secretName: taskapp-tls
   rules:
-    - host: taskapp.44.202.207.122.nip.io
+    - host: taskapp.54.211.238.0.nip.io
       http:
         paths:
           - path: /api
